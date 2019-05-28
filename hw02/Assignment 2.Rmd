@@ -1,0 +1,696 @@
+---
+title: "Homework 1 - Parking"
+author: "Julia Bloom"
+date: "March 21, 2019"
+always_allow_html: yes
+output: 
+  html_document:
+    keep_md: true
+---
+
+```{r Setup, include=FALSE, results='hide', warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(devtools)
+library(tidyverse)
+library(widgetframe)
+library(readr)
+library(leaflet)
+library(RColorBrewer)
+library(countrycode)
+library(leaflet.extras)
+library(knitr)
+library(yaml)
+library(tidyverse)
+library(ggplot2)
+library(magrittr)
+library(dplyr)
+library(magrittr)
+library(ggthemes)
+library(rvest)
+library(stringr)
+library(plotly)
+library(DT)
+library(rgdal)
+library(tmap)
+library(tmaptools)
+library(ggmap)
+library(spdep)
+library(maptools)
+library(rgdal)
+library(spgwr)
+library(ggplot2)
+library(leaflet)
+require(RColorBrewer)
+
+opts_chunk$set(fig.path="figures/",
+               cache.path="cache/",
+               cache=FALSE,
+               echo=TRUE,
+               message=FALSE,
+               warning=FALSE)
+```
+
+#### 1. Data exploration
+
+```{r, warning=FALSE}
+setwd("C:/Users/pantalaimon/Desktop/DATA VIZ/Assignment 2/data")
+park_notmerged = read.csv("parkingNYC_Jan2019.csv")
+codes = read.csv("parkingNYC_ParkingViolationCodes_Nov_2018.csv")
+```
+
+##### a) Violation Code and Fine Amounts
+
+```{r, echo = FALSE}
+## Add the violation code descriptions and fine amounts to the data file. Provide a visual overview of the top 10 most common types of violations (feel free to group them into categories if reasonable). Compare how this ranking differs if we focus on the total amount of revenue generated.
+
+park <- left_join(park_notmerged, codes, by = "Violation_Code")
+park <- dplyr::rename(park, Precinct = Violation.Precinct)
+park$avefine <- (park$Manhattan..96th.St....below..Fine.Amount...+park$All.Other.Areas..Fine.Amount...)/2
+
+## Calculated top ten most common types of violations and added percentage out of total violations
+
+park$violationflag <- ifelse(park$Violation_Code > 0, 1, 0)
+
+## Total number of violations:
+
+sum(park$violationflag) ## comes to 284610
+
+
+top10violation <- park %>%
+  group_by(Violation_Code) %>%
+  summarize(totalvio = sum(violationflag)) %>%
+  mutate(viopercent = round(((totalvio/284610)*100), digits = 1)) %>%
+  arrange(desc(totalvio)) %>%
+  mutate(rank=row_number()) %>%
+  filter(rank<11)
+
+## Adding fine data to top 10 dataset
+
+top10violation <- left_join(top10violation, codes, by = "Violation_Code")
+top10violation$avefine <- ((top10violation$Manhattan..96th.St....below..Fine.Amount...+top10violation$All.Other.Areas..Fine.Amount...)/2)
+top10violation$totalrev <- (top10violation$totalvio*top10violation$avefine)
+```
+
+Calculating the top 10 most common types of violations as a percentage of the total number of violations gives the graph below: 
+
+```{r, warning=FALSE}
+## Created bar graph showing overview of top 10 most common types of violations
+
+bar_1 <- ggplot(top10violation, aes(reorder(ï..Violation_Description, totalvio), viopercent)) +
+  geom_bar(stat = "identity", width = 0.7, fill = "grey") +
+  coord_flip() +
+  theme_tufte() +
+  geom_text(aes(label=viopercent), hjust=-0.1, color="gray29", size=3.5) +
+  labs(x="", y="", title = "Percentage out of Total Violations") +
+  theme(legend.position = "none", axis.ticks = element_blank(), axis.text.x = element_blank(), axis.text.y = element_text(color="gray29", size=10), plot.title = element_text(size=15, face="italic", hjust=-0.1))
+
+bar_1
+```
+
+Here I decided to average the two fines given in the data file. The bar chart above shows that violations against standing during the day is the top most common type of parking ticket.
+
+Focusing on the total amount of revenue generated, I again I decided to average the two fines listed in the file.
+
+```{r}
+## Calculating average fine amount
+
+top10fines <- park %>%
+  mutate(avefine = (Manhattan..96th.St....below..Fine.Amount...+All.Other.Areas..Fine.Amount...)/2) %>%
+  group_by(Violation_Code) %>%
+  summarize(totalrev = sum(avefine)) %>%
+  arrange(desc(totalrev)) %>%
+  mutate(rank=row_number()) %>%
+  filter(rank<11)
+
+top10fines <- left_join(top10fines, codes, by = "Violation_Code")
+
+```
+
+The bar chart below shows that again, daytime standing brings in the most revenue. However, while double parking ranks 4th as the most common type of violation, the graph below reveals that it brings in the second most amount of revenue.
+
+```{r, warning=FALSE}
+
+bar_2 <- ggplot(top10fines, aes(reorder(ï..Violation_Description, totalrev), totalrev)) +
+  geom_bar(stat = "identity", width = 0.7, fill = "grey") +
+  coord_flip() +
+  theme_tufte() +
+  geom_text(aes(label=totalrev), hjust=-0.1, color="gray29", size=3.5) +
+  labs(x="", y="", title = "Top Ten Revenue-Earning Violations") +
+  theme(legend.position = "none", axis.ticks = element_blank(), axis.text.x = element_blank(), axis.text.y = element_text(color="gray29", size=10), plot.title = element_text(size=15, face="italic", hjust=-0.1))
+
+bar_2
+```
+
+##### b) Average amount of fine by vehicle
+
+```{r}
+## Compare the average amount of fine by vehicle color, vehicle year, and vehicle plate type [Hint: it is sufficient to restrict your attention to commercial (COM) and passenger (PAS) vehicles]? Briefly describe your findings.
+
+## Calculated average fine by color, year, and plate type
+
+vehicletype <- park %>%
+  mutate_if(is.numeric, funs(ifelse(is.na(.), 0, .))) %>%
+  mutate(avefine = (Manhattan..96th.St....below..Fine.Amount...+All.Other.Areas..Fine.Amount...)/2) %>%
+  group_by(Plate.Type, Vehicle.Color) %>%
+  mutate(totalpcolor = sum(violationflag)) %>%
+  mutate(totalfinepcolor = sum(avefine)) %>%
+  ungroup() %>%
+  group_by(Plate.Type, Vehicle.Year) %>%
+  mutate(totalpyear = sum(violationflag)) %>%
+  mutate(totalfinepyear = sum(avefine)) %>%
+  ungroup() %>%
+  group_by(Plate.Type) %>%
+  mutate(totalplate = sum(violationflag)) %>%
+  mutate(totalfineplate = sum(avefine)) %>%
+  ungroup() %>%
+  mutate(avefinepcolor = (totalfinepcolor/totalpcolor)) %>%
+  mutate(avefinepyear = (totalfinepyear/totalpyear)) %>%
+  mutate(avefineplate = (totalfineplate/totalplate))
+```
+
+To compare average fines across vehicle color, year, and plate type, I decided to group the data by passenger vehicles and commercial vehicles.
+
+```{r}
+## Grouped data by vehicle color and plate type, and vehicle year and plate type
+
+vehiclecolor <- vehicletype %>%
+  filter(Plate.Type =="PAS" | Plate.Type == "COM") %>%
+  filter(Vehicle.Color=="BLACK" | Vehicle.Color=="BROWN" | Vehicle.Color=="GOLD" | Vehicle.Color=="GRAY" | Vehicle.Color=="GREEN" |  Vehicle.Color=="WHITE" | Vehicle.Color=="RED" |Vehicle.Color=="GREEN"| Vehicle.Color=="BLUE") %>%
+  group_by(Plate.Type, Vehicle.Color, avefinepcolor) %>%
+  summarize()
+
+
+vehicleyear <- vehicletype %>%
+  filter(Plate.Type =="PAS" | Plate.Type == "COM") %>%
+  filter(Vehicle.Year<=2019) %>%
+  filter(Vehicle.Year>0) %>%
+  group_by(Plate.Type, Vehicle.Year, avefinepyear) %>%
+  summarize()
+
+platetype <- vehicletype %>%
+  filter(Plate.Type =="PAS" | Plate.Type == "COM") %>%
+  group_by(Plate.Type, avefineplate) %>%
+  summarize()
+```
+
+Graphing the average fine incurred by plate type does not show much, as it appears both commercial and passenger plate types incur similar average amounts in fines overall.
+
+```{r}
+bar_3 <- ggplot(platetype, aes(Plate.Type, avefineplate)) +
+  geom_bar(stat = "identity", width = 0.7, fill = ifelse(platetype$Plate.Type=="COM", "darkred", "turquoise4")) +
+  theme_tufte() +
+  labs(x="", y="", title = "Average Fine Incurred by Plate Type") +
+  theme(legend.position = "none", axis.ticks = element_blank(), axis.text.x = element_text(color="gray29", size=10), plot.title = element_text(size=15, face="italic"), axis.text.y = element_text(color="gray29", size=10))
+
+bar_3
+```
+
+Creating a slope graph of the average fines per plate type by vehicle color, it appears that white, gray, blue, and black passenger vehicles attract higher fines on average than commercial vehicles that are the same color.
+
+```{r}
+slopegraph_1 <- ggplot(vehiclecolor, aes(Plate.Type, avefinepcolor, group=Vehicle.Color)) +
+  geom_line(aes(color=ifelse(vehiclecolor$Vehicle.Color=="WHITE" |vehiclecolor$Vehicle.Color=="GRAY" | vehiclecolor$Vehicle.Color=="BLUE" | vehiclecolor$Vehicle.Color=="BLACK", "UP", ""), alpha=1), size = 1.5) +
+  geom_point(aes(color = ifelse(vehiclecolor$Vehicle.Color=="WHITE" |vehiclecolor$Vehicle.Color=="GRAY" | vehiclecolor$Vehicle.Color=="BLUE" | vehiclecolor$Vehicle.Color=="BLACK", "UP", ""), alpha=1), size = 3) +
+  geom_text(data = vehiclecolor %>% filter(Plate.Type=="PAS"), 
+            aes(label = paste0(Vehicle.Color)), 
+            hjust = -.35,
+            color = "gray29",
+            size = 3,
+            check_overlap = TRUE) +
+  scale_color_manual(values=c("darkgrey", "turquoise4")) +
+  scale_x_discrete(limits=c("COM", "PAS")) +
+  scale_y_continuous(breaks=seq(0, 100, 10)) +
+  theme_tufte() +
+  labs(x="", y="", title = "Average Fines per Plate Type by Vehicle Color") +
+  theme(legend.position = "none", 
+        axis.text.y = element_text(color="gray29", size=12), 
+        axis.text.x = element_text(color="gray29", size=12), 
+        plot.title = element_text(size=17, face="italic", hjust=.2, vjust = 1), 
+        panel.grid.major.x = element_line(color = "lightgrey"), 
+        axis.ticks = element_blank())
+
+slopegraph_1
+```
+
+Next I graphed the average fine amount for passenger and commercial vehicles across vehicle years:
+
+```{r}
+line_1 <- ggplot(vehicleyear, aes(Vehicle.Year, avefinepyear)) +
+  geom_line(aes(group=Plate.Type, color=ifelse(vehicleyear$Plate.Type=="COM", "COM", ""))) +
+  scale_color_manual(values=c("turquoise4", "darkred")) +
+  geom_text(data = vehicleyear %>% filter(Vehicle.Year==2019), 
+            aes(label = paste0(Plate.Type)), 
+            hjust = -.35,
+            color = "gray29",
+            size = 3,
+            check_overlap = TRUE) +
+  theme_tufte() +
+  scale_x_continuous(breaks=seq(1970, 2020, 5)) +
+  labs(x="", y="Average Fine Amount (dollars) per Year", title = "Average Fines per Year by Plate Type") +
+  theme(legend.position = "none", axis.text.y = element_text(color="gray29", size=10), plot.title = element_text(size=15, face="italic", hjust=-0.1))
+
+line_1
+
+```
+
+From the graph it appears that the average fines incurred per year has grown somewhat for commercial vehicles, while the average fines incurred per year for passenger vehicles has remained more or less the same in recent years.
+
+
+#### 2. Map by Precincts
+
+```{r, warning=FALSE}
+## Read in the shape files for the police precincts and remove all precincts outside of Manhattan.
+
+setwd("C:/Users/pantalaimon/Desktop/DATA VIZ/Assignment 2/data/police_precincts")
+nyc <- readOGR("nypp1.shp")
+
+nyc <- spTransform(nyc, CRS("+proj=longlat +datum=NAD83"))
+man <- nyc$Precinct<=34
+```
+
+##### a) Number of tickets, total fines, and average fines
+
+First, I mapped the total number of tickets issued in Manhattan by police precinct per square mile:
+
+```{r}
+## Calcuating total number of tickets per precinct
+
+ticket <- park %>%
+  mutate_if(is.numeric, funs(ifelse(is.na(.), 0, .))) %>%
+  group_by(Precinct) %>%
+  summarize(totalticket = sum(violationflag))
+
+ticket <- sp::merge(nyc, ticket, by = "Precinct")
+```
+
+```{r, warning = FALSE}
+## Map of ticket density per precinct
+
+tm1 <- tm_shape(ticket[man,]) +
+  tm_borders(alpha=.5) +
+  tm_fill("totalticket", title = "Tickets per Square Mile", convert2density=TRUE, style="pretty") +
+  tm_layout(
+          legend.title.size = 1,
+          legend.text.size = 0.5,
+          legend.position = c(0.8,0),
+          legend.bg.color = "white",
+          legend.bg.alpha = 1,
+          bg.color="white",
+          frame=FALSE)
+
+tm1
+```
+
+Here the map shows the area with the highest number of tickets issued is roughly in mid-town, with about 14,000 to 16,000 tickets issued per square mile.
+
+Next, I mapped the total amount of fines per police precinct per square mile:
+
+```{r}
+## Calcuating total amount of fines per precinct
+
+fines <- park %>%
+  mutate_if(is.numeric, funs(ifelse(is.na(.), 0, .))) %>%
+  group_by(Precinct) %>%
+  summarize(totalfine = sum(avefine))
+
+fines <- sp::merge(nyc, fines, by = "Precinct")
+```
+
+```{r, warning = FALSE}
+## Map of ticket density per precinct
+
+tm2 <- tm_shape(fines[man,]) +
+  tm_borders(alpha=.5) +
+  tm_fill("totalfine", title = "Fines per Square Mile (Dollars)", style="pretty") +
+  tm_layout(
+          legend.title.size = 1,
+          legend.text.size = 0.5,
+          legend.position = c(0.8,0),
+          legend.bg.color = "white",
+          legend.bg.alpha = 1,
+          bg.color="white",
+          frame=FALSE)
+
+tm2
+```
+
+In this map it appears the the Upper East Side actually has the highest incurred fines per square mile.
+
+Finally, I mapped the average fine reported per precinct:
+
+```{r}
+## Calcuating total amount of fines per precinct
+
+avefines <- park %>%
+  mutate_if(is.numeric, funs(ifelse(is.na(.), 0, .))) %>%
+  group_by(Precinct) %>%
+  mutate(totalfine = sum(avefine)) %>%
+  mutate(totalviolation = sum(violationflag)) %>%
+  ungroup() %>%
+  mutate(avefineprecinct = totalfine/totalviolation) %>%
+  group_by(Precinct, avefineprecinct) %>%
+  summarize()
+
+avefines <- sp::merge(nyc, avefines, by = "Precinct")
+```
+
+```{r, warning = FALSE}
+## Map of ticket density per precinct
+
+tm3 <- tm_shape(avefines[man,]) +
+  tm_borders(alpha=.5) +
+  tm_fill("avefineprecinct", title = "Average Fines Issued", style="pretty") +
+  tm_layout(
+          legend.title.size = 1,
+          legend.text.size = 0.5,
+          legend.position = c(0.8,0),
+          legend.bg.color = "white",
+          legend.bg.alpha = 1,
+          bg.color="white",
+          frame=FALSE)
+
+tm3
+```
+
+Again, it appears that the highest average fines are issued in midtown.
+
+##### b) Types of violations
+
+The first map below shows the percent of violations related to "standing" per precinct.
+
+```{r}
+## Group the almost 100 types of ticket violations into a smaller set of 4-6 subgroups (where other should be the remainder of violations not included in other groups you defined). Provide choropleth maps for each of these subgroups to show where different types of violations are more or less common.
+
+standing <- park %>%
+  mutate(standflag = ifelse(park$Violation_Code>9 & park$Violation_Code<32, 1, 0)) %>%
+  group_by(Precinct) %>%
+  mutate(totalstand = sum(standflag)) %>%
+  mutate(totalticket = sum(violationflag)) %>%
+  ungroup() %>%
+  mutate(percstand = (totalstand/totalticket)*100) %>%
+  group_by(Precinct, percstand) %>%
+  summarize()
+
+standing <- sp::merge(nyc, standing, by = "Precinct")
+```
+
+By studying the precincts, it would appear that the tip of Manhattan sees a high percentage of violations related to "standing", out of all violation types.
+
+```{r}
+## percent of violations related to "standing" per precinct
+
+tm4 <- tm_shape(standing[man,]) +
+  tm_borders(alpha=.5) +
+  tm_fill("percstand", title = "Percent 'Standing' Violations", style="pretty") +
+  tm_layout(
+          legend.title.size = 1,
+          legend.text.size = 0.5,
+          legend.position = c(0.8,0),
+          legend.bg.color = "white",
+          legend.bg.alpha = 1,
+          bg.color="white",
+          frame=FALSE)
+
+tm4
+```
+
+Next, I chose to look at violations related to meters.
+
+```{r}
+meter <- park %>%
+  mutate(meterflag = ifelse(park$Violation_Code>31 & park$Violation_Code<39, 1, 0)) %>%
+  group_by(Precinct) %>%
+  mutate(totalmeter = sum(meterflag)) %>%
+  mutate(totalticket = sum(violationflag)) %>%
+  ungroup() %>%
+  mutate(percmeter = (totalmeter/totalticket)*100) %>%
+  group_by(Precinct, percmeter) %>%
+  summarize()
+
+meter <- sp::merge(nyc, meter, by = "Precinct")
+```
+
+From the map below, it would appear that the Upper East and West Sides of Manhattan sees a high percentage of violations related to meters, out of all violations.
+
+```{r}
+## percent of violations related to "Meter" per precinct
+
+tm5 <- tm_shape(meter[man,]) +
+  tm_borders(alpha=.5) +
+  tm_fill("percmeter", title = "Percent 'Meter' Violations", style="pretty") +
+  tm_layout(
+          legend.title.size = 1,
+          legend.text.size = 0.5,
+          legend.position = c(0.8,0),
+          legend.bg.color = "white",
+          legend.bg.alpha = 1,
+          bg.color="white",
+          frame=FALSE)
+
+tm5
+```
+
+Next, I made a group including all violations related to "blocking" things. This could include double parking, blocking a bike lane, or blocking a crosswalk.
+
+```{r}
+blocking <- park %>%
+  mutate(blockingflag = ifelse(park$Violation_Code==40 | park$Violation_Code==46 | (park$Violation_Code>44 & park$Violation_Code<54), 1, 0)) %>%
+  group_by(Precinct) %>%
+  mutate(totalblocking = sum(blockingflag)) %>%
+  mutate(totalticket = sum(violationflag)) %>%
+  ungroup() %>%
+  mutate(percblocking = (totalblocking/totalticket)*100) %>%
+  group_by(Precinct, percblocking) %>%
+  summarize()
+
+blocking <- sp::merge(nyc, blocking, by = "Precinct")
+```
+
+From the map below, it would appear that upper Manhattan and Harlem see a higher percentage of parking violations related to blocking things out of all violations relative to other precincts.
+
+```{r}
+## percent of violations related to "Blokcing" per precinct
+
+tm6 <- tm_shape(blocking[man,]) +
+  tm_borders(alpha=.5) +
+  tm_fill("percblocking", title = "Percent 'Blocking' Violations", style="pretty") +
+  tm_layout(
+          legend.title.size = 1,
+          legend.text.size = 0.5,
+          legend.position = c(0.8,0),
+          legend.bg.color = "white",
+          legend.bg.alpha = 1,
+          bg.color="white",
+          frame=FALSE)
+
+tm6
+```
+
+Finally, I created a fourth map including the percentage of all other violations not included above by precinct.
+
+```{r}
+other <- park %>%
+  mutate(otherflag = ifelse(park$Violation_Code==40 | park$Violation_Code==46 | (park$Violation_Code>44 & park$Violation_Code<54) | (park$Violation_Code>31 & park$Violation_Code<39) | (park$Violation_Code>9 & park$Violation_Code<32), 0, 1)) %>%
+  group_by(Precinct) %>%
+  mutate(totalother = sum(otherflag)) %>%
+  mutate(totalticket = sum(violationflag)) %>%
+  ungroup() %>%
+  mutate(percother = (totalother/totalticket)*100) %>%
+  group_by(Precinct, percother) %>%
+  summarize()
+
+other <- sp::merge(nyc, other, by = "Precinct")
+```
+
+Though this miscellaneous might not tell us much, there seem to be a high percentage of "other" types of violations in midtown.
+
+```{r}
+## percent of violations related to "Other Violations" per precinct
+
+tm7 <- tm_shape(other[man,]) +
+  tm_borders(alpha=.5) +
+  tm_fill("percother", title = "Percent 'Other' Violations", style="pretty") +
+  tm_layout(
+          legend.title.size = 1,
+          legend.text.size = 0.5,
+          legend.position = c(0.8,0),
+          legend.bg.color = "white",
+          legend.bg.alpha = 1,
+          bg.color="white",
+          frame=FALSE)
+
+tm7
+```
+
+
+###### 3. Focusing on the Upper East Side
+
+##### a) Ignoring fire hydrants
+
+Focusing only on the Upper East Side (precinct 19), I then geocoded all hydrant-related offenses.
+
+```{r}
+## Restrict your data to parking violations related to fire hydrants (Violation Code = 40) 
+
+hydrant <- park %>%
+  mutate_if(is.numeric, funs(ifelse(is.na(.), 0, .))) %>%
+  filter(Precinct == 19 & Violation_Code == 40) %>%
+  mutate(Address = paste(House.Number, Street.Name, ', New York, NY'))
+```
+
+```{r, eval=FALSE}
+## Geocoding addresses
+parking_sub_coords <- geocode(hydrant$Address)
+hydrantcoords <- bind_cols(hydrant, parking_sub_coords)
+```
+
+The data table below shows all variables from the original data set:
+
+```{r}
+## Include a data table of these addresses and the latitude and longitude of these addresses in the output.
+
+## Here to save on processing time, I exported my geo-coded dataframe as a csv and reloaded it into R
+
+setwd("C:/Users/pantalaimon/Desktop/DATA VIZ/Assignment 2/data")
+upper <- read.csv("hydrant.csv")
+
+datatable1 <- upper %>%
+  datatable(
+    rownames = FALSE,
+    filter = list(position = "top"),
+    options = list(language = list(sSearch = "Filter:")))
+
+datatable1
+```
+
+
+##### b) Interactive Map
+
+Using the data generated above, the map below shows the locations of all hydrant-related violations on the upper east side.
+
+```{r}
+## Provide an interactive map of the violations you geocoded using leaflet. Provide at least three pieces of information on the parking ticket in a popup.
+
+content <- paste("Plate Type:",upper$Plate.Type,"<br/>",
+                 "Vehicle Make:",upper$Vehicle.Make,"<br/>",
+                 "Vehicle Year:",upper$Vehicle.Year,"<br/>")
+
+m <- leaflet(upper) %>%
+  addProviderTiles("Stamen.TonerLite", options = providerTileOptions(opacity = 0.6)) %>%
+  setView(-73.961164, 40.775332, zoom = 14)
+
+leaf1 <- m %>%
+  addCircles(col = "orange", popup = content)
+
+leaf1
+```
+
+Looking at the map, it appears there are some outlying violations falling outside the 19th precinct. These may have been mis-geocoded, or it's also possible that the reporting officer mis-recorded the street address.
+
+
+##### c) Luxury cars and repeat offenders
+
+Next I created a variable flagging whether the car in violation was a "luxury brand". Here I define luxury brands as Audi, BMW, Bentley, Mercedes Benz, and Porsche. I also created a flag for "repeat offender" plates that have received more than one violation.
+
+```{r}
+## Create another variable called luxury_car in which you identify luxury car brands using the Vehicle Make variable.
+
+upper$luxcar <- ifelse(upper$Vehicle.Make == "AUDI" | upper$Vehicle.Make == "BMW" | upper$Vehicle.Make == "BENTL" | upper$Vehicle.Make == "ME/BE" | upper$Vehicle.Make == "PORSC", "YES", "NO")
+
+## Using the vehicle Plate ID, identify repeat offenders (in the full dataset).
+upperviolation <- upper %>%
+  group_by(Plate.ID) %>%
+  mutate(totaloff = sum(violationflag)) %>%
+  ungroup() %>%
+  mutate(repeatoff = ifelse(totaloff>1, "YES", "NO"))
+```
+
+Plotting the luxury-car offenses below shows that while a majority of offenders do not own luxury cars, there are still quite a few who do. There is also a small number of violations for which the car brand was not recorded (shown in the map as NA).
+
+```{r}
+## Start with the previous map. Distinguish the points by whether the car is a repeat offender and/or luxury car. Add a legend informing the user about the color scheme. Also make sure that the added information about the car type and repeat offender status is now contained in the popup information. Show this map.
+
+content2 <- paste("Luxury Car:",upperviolation$luxcar,"<br/>",
+                  "Repeat Offender:",upperviolation$repeatoff,"<br/>",
+                  
+                  "Plate Type:",upperviolation$Plate.Type,"<br/>",
+                  "Vehicle Make:",upperviolation$Vehicle.Make,"<br/>",
+                  "Vehicle Year:",upperviolation$Vehicle.Year,"<br/>")
+
+pal = colorFactor(c("lightblue", "violetred"), domain = upperviolation$luxcar)
+color_lux = pal(upperviolation$luxcar)
+
+m2 <- leaflet(upperviolation) %>%
+  addProviderTiles("Stamen.TonerLite", options = providerTileOptions(opacity = 0.6)) %>%
+  setView(-73.961164, 40.775332, zoom = 14)
+
+leaf2 <- m2 %>%
+  addCircles(col = color_lux, popup = content2) %>%
+  addLegend(pal = pal, values = ~upperviolation$luxcar, title = "Luxury Car")
+
+leaf2
+
+```
+
+Mapping repeat offenders show similar results (see map below):
+
+```{r}
+## Mapping repeat offenders
+
+pal2 = colorFactor(c("lightblue", "red"), domain = upperviolation$repeatoff)
+color_lux = pal2(upperviolation$repeatoff)
+
+leaf3 <- m2 %>%
+  addCircles(col = color_lux, popup = content2) %>%
+  addLegend(pal = pal2, values = ~upperviolation$repeatoff, title = "Repeat Offender")
+
+leaf3
+```
+
+
+##### d) Cluster
+
+Mapping the clusters of luxury car offenders only reveals a little more information about where luxury car offenses happen. For example, in the map below we see that between 2nd and 1st avenue there is a high cluster of offenses (around 65).
+
+```{r}
+## Add marker clustering, so that zooming in will reveal the individual locations but the zoomed out map only shows the clusters. Show the map with clusters.
+
+luxonly <- upperviolation %>%
+  filter(luxcar=="YES")
+
+repeatonly <- upperviolation %>%
+  filter(repeatoff=="YES")
+
+content3 <- paste("Luxury Car:",luxonly$luxcar,"<br/>",
+                  "Repeat Offender:",luxonly$repeatoff,"<br/>",
+                  
+                  "Plate Type:",luxonly$Plate.Type,"<br/>",
+                  "Vehicle Make:",luxonly$Vehicle.Make,"<br/>",
+                  "Vehicle Year:",luxonly$Vehicle.Year,"<br/>")
+
+leaf4 <- leaflet(luxonly) %>%
+  addProviderTiles("Stamen.TonerLite", options = providerTileOptions(opacity = 0.6)) %>%
+  setView(-73.961164, 40.775332, zoom = 14) %>% 
+  addCircleMarkers(color = "violetred", popup = content3, clusterOptions = markerClusterOptions())
+
+leaf4
+```
+
+Mapping the clusters of repeat offenders only shows a similar map, with more even more clusters of offenders north of East 79th street between 1st and 2nd ave:
+
+```{r}
+content4 <- paste("Luxury Car:",repeatonly$luxcar,"<br/>",
+                  "Repeat Offender:",repeatonly$repeatoff,"<br/>",
+                  
+                  "Plate Type:",repeatonly$Plate.Type,"<br/>",
+                  "Vehicle Make:",repeatonly$Vehicle.Make,"<br/>",
+                  "Vehicle Year:",repeatonly$Vehicle.Year,"<br/>")
+
+leaf5 <- leaflet(repeatonly) %>%
+  addProviderTiles("Stamen.TonerLite", options = providerTileOptions(opacity = 0.6)) %>%
+  setView(-73.961164, 40.775332, zoom = 14) %>% 
+  addCircleMarkers(color = "red", popup = content4, clusterOptions = markerClusterOptions())
+
+leaf5
+```
+

@@ -1,0 +1,555 @@
+---
+title: "Homework 1 - Summer Olympics"
+author: "Julia Bloom"
+date: "February 17, 2019"
+always_allow_html: yes
+output: 
+  html_document:
+    keep_md: true
+---
+```{r Setup, include=FALSE, results='hide', warning=FALSE}
+    library(knitr)
+    library(yaml)
+    library(tidyverse)
+    library(ggplot2)
+    library(magrittr)
+    library(dplyr)
+    library(magrittr)
+    library(ggthemes)
+    library(rvest)
+    library(stringr)
+    library(plotly)
+    library(DT)
+opts_chunk$set(fig.path="figures/",
+               cache.path="cache/",
+               cache=FALSE,
+               echo=TRUE,
+               message=FALSE,
+               warning=FALSE)
+```
+
+
+#### 1. Medal Counts over Time
+
+
+When it comes to winning medals in the Summer Olympics, what do the top 10 most successful countries have in common? The below visualizations aim to investigate this question, highighting the US's journing in becoming the top Summer Olympic medal-winner of all time.
+
+```{r, warning=FALSE}
+setwd("C:/Users/pantalaimon/Desktop/DATA VIZ/Assignment 1")
+ath = read.csv("athletes_and_events.csv")
+gdp = read.csv("gdp_pop.csv")
+noc = read.csv("noc_regions.csv")
+```
+
+In conducting this investigation, I chose to focus on the National Olympic Committees (NOCs) associated with each team. To begin, I isolated only summer games and calculated the total number of medals won by each of the top 10 medal-winning NOCs:
+
+```{r, warning=FALSE}
+## Created medal flag
+
+ath$medalflag <- ifelse((ath$Medal=="Gold") | (ath$Medal=="Silver") | (ath$Medal=="Bronze"), 1, 0)
+
+## Created top ten list
+
+top10medal <- ath %>%
+  mutate_if(is.numeric, funs(ifelse(is.na(.), 0, .))) %>%
+  filter(Season=="Summer") %>%
+  filter(medalflag==1) %>%
+  group_by(NOC) %>%
+  summarize(totalmedal = sum(medalflag)) %>%
+  arrange(desc(totalmedal)) %>%
+  mutate(rank=row_number()) %>%
+  filter(rank<11)
+
+## Added country variables
+
+top10medal$Country[top10medal$NOC=="USA"] <- "United States"
+top10medal$Country[top10medal$NOC=="URS"] <- "Soviet Union"
+top10medal$Country[top10medal$NOC=="SWE"] <- "Sweden"
+top10medal$Country[top10medal$NOC=="NED"] <- "Netherlands"
+top10medal$Country[top10medal$NOC=="ITA"] <- "Italy"
+top10medal$Country[top10medal$NOC=="HUN"] <- "Hungary"
+top10medal$Country[top10medal$NOC=="GER"] <- "Germany"
+top10medal$Country[top10medal$NOC=="GBR"] <- "United Kingdom"
+top10medal$Country[top10medal$NOC=="GER"] <- "Germany"
+top10medal$Country[top10medal$NOC=="AUS"] <- "Australia"
+top10medal$Country[top10medal$NOC=="FRA"] <- "France"
+```
+  
+The table below shows the top 10 medal winners of all time by NOC the country associated with them:
+
+```{r}
+top10medal
+```
+
+Next I created a variable for the total number of summer games each of the top 10 NOCs competed in for comparison, and calculated the average number of medals won per games for each NOC.
+
+```{r}
+## Creating count of total games played by each NOC
+
+games <- ath %>%
+  mutate_if(is.numeric, funs(ifelse(is.na(.), 0, .))) %>%
+  filter(Season=="Summer") %>%
+  group_by(NOC) %>%
+  summarize(countgames = n_distinct(Year)) %>%
+  filter(NOC %in% top10medal$NOC)
+
+## Joined rankings together with total number of games variable and created variable for average number of medals earned per game
+
+combo <- left_join(games, top10medal, by = "NOC")
+combo$ave <- format(round(combo$totalmedal/combo$countgames, 1), nsmall = 1)
+```
+
+Finally I graphed the total number of medals won by each NOC, highlighting the number of medals won by the US. I also created a second graph showing the average number of medals each NOC has won per game:
+
+```{r}
+bar_1 <- ggplot(combo, aes(reorder(NOC, totalmedal), totalmedal)) +
+  geom_bar(stat = "identity", width = 0.7, fill = ifelse(combo$NOC=="USA", "turquoise4", "grey")) +
+  coord_flip() +
+  theme_tufte() +
+  geom_text(aes(label=totalmedal), hjust=-0.1, color="gray29", size=3.5) +
+  labs(x="", y="", title = "Total Medals Earned, by NOC") +
+  theme(legend.position = "none", axis.ticks = element_blank(), axis.text.x = element_blank(), axis.text.y = element_text(color="gray29", size=10), plot.title = element_text(size=15, face="italic", hjust=-0.1))
+
+bar_1
+
+bar_2 <- ggplot(combo, aes(reorder(NOC, totalmedal), ave)) +
+  geom_bar(stat = "identity", width = 0.7, fill = ifelse(combo$NOC=="USA", "turquoise4", "grey")) +
+  coord_flip() +
+  theme_tufte() +
+  geom_text(aes(label=ave), hjust=-0.1, color="gray29", size=3.5) +
+  labs(x="", y="", title = "Average Number of Medals Won per Games") +
+  theme(legend.position = "none", axis.ticks = element_blank(), axis.text.x = element_blank(), axis.text.y = element_text(color="gray29", size=10), plot.title = element_text(size=15, face="italic", hjust=-0.1))
+
+bar_2
+```
+
+Comparing the two graphs above, we see that while the US has earned the most summer games medals overall, the USSR actually had a higher average of medals earned per games.
+
+What about total medals won over time? Below, I created a line graph showing the total number of medals won by NOC over time, and another graph showing the cumulative number of medals won.
+
+```{r}
+## Creating the dataset for medals earned per year
+
+top10time <- ath %>%
+  mutate_if(is.numeric, funs(ifelse(is.na(.), 0, .))) %>%
+  filter(Season=="Summer") %>%
+  filter(NOC %in% top10medal$NOC) %>%
+  filter(medalflag==1) %>%
+  group_by(NOC, Year) %>%
+  summarize(totalyear = sum(medalflag)) %>%
+  mutate(cumsum = cumsum(totalyear)) %>%
+  ungroup()
+```
+
+```{r}
+line_1 <- ggplot(top10time, aes(Year, cumsum)) +
+  geom_line(aes(group=NOC, color=ifelse(top10time$NOC=="USA", "USA", ""))) +
+  scale_color_manual(values=c("grey", "turquoise4")) +
+  geom_text(data = top10time %>% filter(Year==2016), 
+            aes(label = paste0(NOC)), 
+            hjust = -.35,
+            color = "gray29",
+            size = 3,
+            check_overlap = TRUE) +
+  geom_text(data = top10time %>% filter(Year==1988 & NOC=="URS"), 
+            aes(label = paste0(NOC)), 
+            hjust = -.35,
+            color = "gray29",
+            size = 3,
+            check_overlap = TRUE) +
+  theme_tufte() +
+  scale_x_continuous(breaks=seq(1896, 2016, 10)) +
+  labs(x="", y="Cumulative Medals Won", title = "Cumulative Medals Won from 1896 to 2016") +
+  theme(legend.position = "none", axis.text.y = element_text(color="gray29", size=10), plot.title = element_text(size=15, face="italic", hjust=-0.1))
+
+line_1
+
+line_2 <- ggplot(top10time, aes(Year, totalyear)) +
+  geom_line(aes(group=NOC, color=ifelse(top10time$NOC=="USA", "USA", ""))) +
+  scale_color_manual(values=c("grey", "turquoise4")) +
+  geom_text(data = top10time %>% filter(Year==2016), 
+            aes(label = paste0(NOC)), 
+            hjust = -.35,
+            color = "gray29",
+            size = 3,
+            check_overlap = TRUE) +
+  geom_text(data = top10time %>% filter(Year==1988 & NOC=="URS"), 
+            aes(label = paste0(NOC)), 
+            hjust = -.35,
+            color = "gray29",
+            size = 3,
+            check_overlap = TRUE) +
+  theme_tufte() +
+  scale_x_continuous(breaks=seq(1896, 2016, 10)) +
+  labs(x="", y="Number of Medals Won", title = "Total Medals Won by Year") +
+  theme(legend.position = "none", 
+        axis.text.y = element_text(color="gray29", size=10), 
+        plot.title = element_text(size=15, face="italic", hjust=-0.1))
+
+line_2
+```
+
+I depending on what the editor is interested in showing, I would suggest using the line graph of the cumulative number of medals earned because it clearly portrays both the large difference between the total number of of medals earned (ie the values shown for 2016) and shows how the rapid increase in the number of medals collected by the USSR, despite having participated in fewer games. What happened during this period that gave the USSR the edge?
+
+
+#### 2. Medal Counts adjusted by Population, GDP
+
+
+Does population or GDP per capita have any influence on winning summer medals?
+
+```{r, warning=FALSE}
+## Creating a dataset showing medal counts, pop, and gdp
+
+medalcount <- ath %>%
+ mutate_if(is.numeric, funs(ifelse(is.na(.), 0, .))) %>%
+  filter(Season=="Summer") %>%
+  filter(medalflag==1) %>%
+  group_by(NOC) %>%
+  summarize(total = sum(medalflag)) %>%
+  arrange(desc(total)) %>%
+  mutate(rank=row_number()) %>%
+  filter(rank<11)
+
+## For some reason, Singapore was miscoded. I also included Russia in place of USSR
+
+gdp$NOC <- as.character(gdp$Code)
+gdp$NOC[gdp$Code == "SIN"] <- "SGP"
+gdp$NOC[gdp$Code == "RUS"] <- "URS"
+medalgdp <- left_join(medalcount, gdp, by="NOC")
+
+## Created variables showing the ratio of medals won to pop and gdp
+
+medalgdp$totalpop <- medalgdp$total/medalgdp$Population
+medalgdp$totalgdp <- medalgdp$total/medalgdp$GDP.per.Capita
+```
+
+The above visualizations show the unadjusted medal rankings of each NOC - here, I calculated the ratio of medals won to both population and GDP per capita for each NOC. Then I created two new rankings for medals won using these ratios.
+
+```{r, warning=FALSE}
+## Creating rankings for population
+
+finalpop <- medalgdp %>%
+  mutate_if(is.numeric, funs(ifelse(is.na(.), 0, .))) %>%
+  group_by(NOC, totalpop) %>%
+  summarize() %>%
+  arrange(desc(totalpop))
+
+## For some reason the row number function doesn't work, so I hard coded the rankings
+
+finalpop$rank[finalpop$NOC=="HUN"] <- 1
+finalpop$rank[finalpop$NOC=="SWE"] <- 2
+finalpop$rank[finalpop$NOC=="AUS"] <- 3
+finalpop$rank[finalpop$NOC=="NED"] <- 4
+finalpop$rank[finalpop$NOC=="GBR"] <- 5
+finalpop$rank[finalpop$NOC=="FRA"] <- 6
+finalpop$rank[finalpop$NOC=="ITA"] <- 7
+finalpop$rank[finalpop$NOC=="GER"] <- 8
+finalpop$rank[finalpop$NOC=="USA"] <- 9
+finalpop$rank[finalpop$NOC=="URS"] <- 10
+
+finalpop$ranktype <- "Pop"
+```
+
+```{r, warning=FALSE}
+## Creating rankings for GDP
+
+finalgdp <- medalgdp %>%
+  mutate_if(is.numeric, funs(ifelse(is.na(.), 0, .))) %>%
+  group_by(NOC, totalgdp) %>%
+  summarize() %>%
+  arrange(desc(totalgdp))
+
+## For some reason the row number function doesn't work, so I hard coded the rankings
+
+finalgdp$rank[finalgdp$NOC=="URS"] <- 1
+finalgdp$rank[finalgdp$NOC=="HUN"] <- 2
+finalgdp$rank[finalgdp$NOC=="USA"] <- 3
+finalgdp$rank[finalgdp$NOC=="ITA"] <- 4
+finalgdp$rank[finalgdp$NOC=="GBR"] <- 5
+finalgdp$rank[finalgdp$NOC=="FRA"] <- 6
+finalgdp$rank[finalgdp$NOC=="GER"] <- 7
+finalgdp$rank[finalgdp$NOC=="AUS"] <- 8
+finalgdp$rank[finalgdp$NOC=="SWE"] <- 9
+finalgdp$rank[finalgdp$NOC=="NED"] <- 10
+
+finalgdp$ranktype <- "GDP"
+
+```
+
+```{r, warning=FALSE}
+## Combining all rankings into one dataset
+
+top10medal$ranktype <- "Total"
+
+top10medal.temp <- within(top10medal, rm(totalmedal, Country))
+finalgdp <- within(finalgdp, rm(totalgdp))
+finalpop <- within(finalpop, rm(totalpop))
+top10medal.temp$NOC <- as.character(top10medal.temp$NOC)
+
+
+combomedal1 <- bind_rows(top10medal.temp, finalgdp, finalpop)
+```
+
+The graph below shows the new adjusted rankings by NOC, highlighting how the US's ranking changes when adjusted by GDP and population:
+
+```{r}
+multiples_1 <- ggplot(combomedal1, aes(NOC, rank, group=NOC)) +
+  geom_bar(aes(fill=NOC, alpha=1), stat = "identity", width = 0.7, position = "dodge") +
+  scale_fill_manual(values=c("grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "grey", "turquoise4")) +
+  theme_tufte() +
+  coord_flip() +
+  labs(x="", y="Rank", title = "Medals Rankings, Adjusted for Population and GDP per capita") +
+  scale_y_continuous(breaks=seq(0, 10, 2)) +
+  theme(legend.position = "none", 
+        axis.text.y = element_text(color="gray30", size=8),
+        axis.text.x = element_text(color="gray30", size=10), 
+        plot.title = element_text(size=15, face="italic"),
+        panel.background = element_rect(fill = "grey95", color = "white"),
+        panel.grid.major = element_line(color="white")) +
+  facet_grid(rows = vars(ranktype), scales = "free")
+
+multiples_1
+```
+
+From the graph we can see that while the US ranks 1st in overall (unadjusted) medal count, it ranks much lower (around 9th out of 10) when adjusted for population. It also ranks slighly lower (around 3rd out of 10) when adjusted for GDP per capita. This could suggest that while a country's population might not factor into a country's summer medal winnings, GDP per capita might.
+
+
+#### 3. Host Country Advantage
+
+
+These next visualizations attempt to investigate whether the top 10 summer Olympics medal winners of all time showed any host country advantage.
+
+```{r}
+## This is the code I copied from the Assignment Instructions which brings in the host country dataset. I added a space after the "," to make matching the countries easier (see below)
+
+wiki_hosts <- read_html("https://en.wikipedia.org/wiki/Summer_Olympic_Games")
+hosts <- html_table(html_nodes(wiki_hosts, "table")[[8]], fill=TRUE)
+hosts <- hosts[-1,1:3]
+hosts$city <- str_split_fixed(hosts$Host, n=2, ", ")[,1]
+hosts$country <- str_split_fixed(hosts$Host, n=2, ", ")[,2]
+```
+
+```{r, warning=FALSE}
+## Creating a new dataset like the ones above
+
+host <- ath %>%
+  mutate_if(is.numeric, funs(ifelse(is.na(.), 0, .))) %>%
+  filter(Season=="Summer") %>%
+  group_by(NOC) %>%
+  mutate(totalmedal = sum(medalflag)) %>%
+  ungroup() %>%
+  filter(NOC %in% top10medal$NOC) %>%
+  arrange(desc(totalmedal))
+
+## Joining the above dataset with the host country dataset by year
+
+hosts$Year <- as.integer(hosts$Year)
+combohosts <- left_join(host, hosts, by = "Year")
+```
+
+At this point I also learned that there was actually no official 1906 Summer Olympics (despite the inclusion of a 1906 Olympics in Athens in the dataset). However I decided to include the 1906 data since I had also included it in the graphs above.
+
+```{r, warning=FALSE}
+## Here I'm just creating a variable that renames each country that has hosted a summer olympics with that country's NOC. I did this to make it easier to match teams with the hosting country.
+
+combohosts$country[combohosts$City=="Athina"] <- "Greece"
+
+combohosts$hostNOC[combohosts$country=="United States"] <- "USA"
+combohosts$hostNOC[combohosts$country=="Soviet Union"] <- "URS"
+combohosts$hostNOC[combohosts$country=="Sweden"] <- "SWE"
+combohosts$hostNOC[combohosts$country=="Netherlands"] <- "NED"
+combohosts$hostNOC[combohosts$country=="Italy"] <- "ITA"
+combohosts$hostNOC[combohosts$country=="Hungary"] <- "HUN"
+combohosts$hostNOC[combohosts$country=="Germany"] <- "GER"
+combohosts$hostNOC[combohosts$country=="United Kingdom"] <- "GBR"
+combohosts$hostNOC[combohosts$country=="Germany"] <- "GER"
+combohosts$hostNOC[combohosts$country=="West Germany"] <- "GER"
+combohosts$hostNOC[combohosts$country=="Australia"] <- "AUS"
+
+combohosts$hostNOC[combohosts$country=="Belgium"] <- "BEL"
+combohosts$hostNOC[combohosts$country=="Brazil"] <- "BRA"
+combohosts$hostNOC[combohosts$country=="Canada"] <- "CAN"
+combohosts$hostNOC[combohosts$country=="China"] <- "CHN"
+combohosts$hostNOC[combohosts$country=="Finland"] <- "FIN"
+combohosts$hostNOC[combohosts$country=="France"] <- "FRA"
+combohosts$hostNOC[combohosts$country=="Greece"] <- "GRE"
+combohosts$hostNOC[combohosts$country=="Spain"] <- "ESP"
+combohosts$hostNOC[combohosts$country=="Japan"] <- "JPN"
+combohosts$hostNOC[combohosts$country=="Mexico"] <- "MEX"
+combohosts$hostNOC[combohosts$country=="South Korea"] <- "KOR"
+```
+
+Looking at a table of the final dataset shows that among the top 10 medal-earning NOCs, all but Hungry have participated in summer games they have hosted.
+
+```{r, warning=FALSE}
+## Creating a flag for each athelete for whether they were playing in their team's country.
+
+combohosts$host_flag <- ifelse(combohosts$NOC==combohosts$hostNOC, 1, 0)
+
+## Creating the final dataset with the average number of medals earned per summer game for hosted games and not-hosted games
+
+host_total <- combohosts %>%
+  group_by(NOC, host_flag) %>%
+  mutate(countgames = n_distinct(Year)) %>%
+  ungroup() %>%
+  group_by(NOC, host_flag) %>%
+  mutate(hosttotal = sum(medalflag)) %>%
+  ungroup() %>%
+  mutate(medalave = hosttotal/countgames) %>%
+  group_by(NOC, host_flag, countgames, totalmedal, hosttotal, medalave) %>%
+  summarise() %>%
+  arrange(NOC, host_flag) %>%
+  ungroup()
+
+host_total$host_flag <- ifelse(host_total$host_flag==1, "Hosted", "Not Hosted")
+host_total
+```
+
+Finally, I created a slopgraph showing the average number of medals won per games for each NOC for when they were not hosting, and when they were hosting:
+
+```{r}
+slopegraph_1 <- ggplot(host_total, aes(host_flag, medalave, group=NOC)) +
+  geom_line(aes(color = ifelse(host_total$NOC=="USA", "USA", ""), alpha=1), size = 1.5) +
+  geom_point(aes(color = ifelse(host_total$NOC=="USA", "USA", ""), alpha=1), size = 3) +
+  geom_text(data = host_total %>% filter(host_flag=="Hosted"), 
+            aes(label = paste0(NOC)), 
+            hjust = -.35,
+            color = "gray29",
+            size = 3,
+            check_overlap = TRUE) +
+  geom_text(data = host_total %>% filter(host_flag=="Hosted" & NOC=="SWE"),
+            aes(label = paste0(NOC)),
+            hjust = -.35,
+            color = "gray29",
+            size = 3,
+            nudge_y = 7) +
+  scale_color_manual(values=c("grey", "turquoise4")) +
+  scale_y_continuous(breaks=seq(0, 550, 100)) +
+  scale_x_discrete(limits=c("Not Hosted", "Hosted")) +
+  theme_tufte() +
+  labs(x="", y="", title = "Average Number of Medals Won (per Summer Games)") +
+  theme(legend.position = "none", 
+        axis.text.y = element_text(color="gray29", size=12), 
+        axis.text.x = element_text(color="gray29", size=12), 
+        plot.title = element_text(size=17, face="italic", hjust=.2, vjust = 1), 
+        panel.grid.major.x = element_line(color = "lightgrey"), 
+        axis.ticks = element_blank())
+
+slopegraph_1
+```
+
+Looking at the slopegraph, it would appear that on average, NOCs earn more medals per Olympic games when they are hosting than when they are not hosting. If a particular country wants to increase their medal count, they might want to consider hosting the summer games!
+
+
+#### 4. Most successful athletes
+
+The next set of visualizations look at the most "successful" athletes among the top 10 medal-winning NOCs for the Summer Olympics. In particular, we're interested in seeing which athletes and sport earn the most medals.
+
+```{r, warning=FALSE}
+## Creating new dataset listing 10 most succesful athletes of all time
+
+top10sucess <- ath %>%
+  mutate_if(is.numeric, funs(ifelse(is.na(.), 0, .))) %>%
+  filter(Season=="Summer") %>%
+  group_by(ID) %>%
+  mutate(totalmedal = sum(medalflag)) %>%
+  ungroup() %>%
+  filter(NOC %in% top10medal$NOC) %>%
+  arrange(desc(totalmedal)) %>%
+  group_by(ID, Name, Sex, totalmedal, NOC, Sport) %>%
+  summarize() %>%
+  ungroup %>%
+  arrange(desc(totalmedal)) %>%
+  mutate(rank=row_number()) %>%
+  filter(rank<11) %>%
+  ungroup()
+
+top10sucess$Sex <- ifelse(top10sucess$Sex=="F", "Female", "Male")
+```
+
+First, the below graph shows the top 10 biggest medal-winners of all time for the Summer games only:
+
+```{r}
+## Creating a dotplot seperated by NOC
+
+dotplot_1 <- ggplot(top10sucess, aes(totalmedal, reorder(Name, totalmedal), group=NOC)) +
+  geom_point(aes(color=NOC, alpha=1), size=5) +
+  scale_color_manual(values=c("grey", "grey", "grey", "turquoise4")) +
+  theme_tufte() +
+  labs(x="Total Medals Won", y="", title = "Top 10 Biggest Medal Winners (Summer Games Only)") +
+  theme(legend.position = "none", 
+        axis.text.y = element_text(color="gray30", size=10),
+        axis.text.x = element_text(color="gray30", size=10), 
+        plot.title = element_text(size=15, face="italic", hjust=1.5),
+        panel.background = element_rect(fill = "grey95", color = "white"),
+        panel.grid.major = element_line(color="white")) +
+  facet_grid(rows = vars(NOC), scales = "free", space = "free")
+
+dotplot_1
+```
+
+From the dotplot above, we can see that most of the top 10 highest achieving athletes are on the US team. Additionally,Michael Phelps has the most total medals of all time.
+
+Next, I looked at the distribution of medals won across sport and gender:
+
+```{r}
+## Plotting Medals Won by Sport and Gender
+
+bar_3 <- ggplot(top10sucess, aes(reorder(Sex, totalmedal), totalmedal, group=Sex)) +
+  geom_bar(stat = "identity", width = 0.7, fill="turquoise4") +
+  theme_tufte() +
+  labs(x="Gender", y="Total Medals Won", title = "Medals Won by Sport and Gender") +
+  theme(legend.position = "none", 
+        axis.text.y = element_text(color="gray30", size=10),
+        axis.text.x = element_text(color="gray30", size=10), 
+        plot.title = element_text(size=15, face="italic"),
+        panel.background = element_rect(fill = "grey95", color = "white"),
+        panel.grid.major = element_line(color="white")) +
+  facet_grid(cols = vars(Sport), scales = "free", space = "free")
+
+bar_3
+```
+
+From the graph, it would appear that out of the top 10 biggest medal-winning NOCs during the Summer Games, male swimmers were the most sucessful medal-winners (ie, won the most medals overall). Does this mean that countries who want to win more Summer Olympic medals should train more swimmers?
+
+
+#### 5. Make two plots interactive
+
+
+I chose to make the above line and slope graphs interactive because I felt readers might be interested in hovering over certain points to obtain their actual values. Although the static version of each graph does give an overall impression of the data, some readers may be more interested in learning the particulars of a certain year or country. Additionally, the ability to zoom in on an image may make the line graph easier to interpret (particularly at the low-end of the x axis where many of the lines overlap)
+
+```{r}
+gline <- ggplotly(line_1)
+
+gline
+```
+
+
+```{r}
+gslope <- ggplotly(slopegraph_1)
+
+gslope
+```
+
+
+#### 6. Data Table
+
+
+The data table below contains data for only Summer Games, and shows the number of medals won by sport for each NOC and year. I chose these variables because I felt readers might be interested to browse the number of medals won by sport for ALL NOCs, not just medals won by the top 10 medal-winners above.
+
+```{r}
+## Preparing a dateframe for the table that includes most variables used in the above visualizations
+
+newdata <- ath %>%
+  mutate_if(is.numeric, funs(ifelse(is.na(.), 0, .))) %>%
+  filter(Season=="Summer") %>%
+  filter(medalflag==1) %>%
+  group_by(NOC, Year, Sport) %>%
+  summarize(Medals = sum(medalflag))
+
+newdata %>%
+  datatable(
+    rownames = FALSE,
+    filter = list(position = "top"),
+    options = list(language = list(sSearch = "Filter:")))
+```
