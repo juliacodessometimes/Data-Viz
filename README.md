@@ -1,3 +1,3 @@
-# Data-Viz
+# Coursework
 
-Short exploratory analysis of baby names over time for Data Visualization course
+Assignments and exercises from school
