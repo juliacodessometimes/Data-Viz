@@ -1,3 +1,3 @@
 # Coursework
 
-Assignments and exercises from school
+Assignments and exercises submitted for the QMSS program
