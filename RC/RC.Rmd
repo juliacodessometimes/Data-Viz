@@ -1,0 +1,156 @@
+---
+title: "RC interview - Kickstarter"
+author: "Julia Bloom"
+date: "June, 2019"
+output:
+  html_document:
+    df_print: paged
+    keep_md: TRUE
+---
+
+```{r Setup, include=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+Sys.setenv(JAVA_HOME='C:\\Program Files\\Java\\jdk-11.0.2')
+library(devtools)
+library(tidyverse)
+library(widgetframe)
+library(readr)
+library(knitr)
+library(yaml)
+library(ggplot2)
+library(magrittr)
+library(dplyr)
+library(ggthemes)
+library(rvest)
+library(stringr)
+library(plotly)
+library(DT)
+library(rgdal)
+library(spdep)
+require(RColorBrewer)
+library(doBy)
+library(tm)
+library(quanteda)
+library(tidytext)
+library(qdapDictionaries)
+library(qdapRegex)
+library(qdapTools)
+library(rJava)
+library(qdap)
+library(SnowballC)
+library(stringi)
+library(wordcloud)
+library(plotrix)
+library(gganimate)
+
+opts_chunk$set(fig.path="figures/",
+               cache.path="cache/",
+               cache=FALSE,
+               echo=TRUE,
+               message=FALSE,
+               warning=FALSE)
+```
+
+This project started as a homework assignment for my data visualization course. I didn't get as a high a grade as I wanted, so I decided to re-work my some of my visulization!
+
+```{r, warning=FALSE}
+kickstarter <- read.csv(file.choose())
+```
+
+```{r}
+head(kickstarter)
+```
+
+The data I'm using is taken from Kickstarter.com, and is organized by project. The columns for the database show how many backers each project got, the project's fundraising goal, how much money was pledged, what category the project falls under (ex. music, art, technology, etc), and wether the project was successfully funded or not. Each project also has a location.
+
+#### Identifying Successful Projects
+
+##### Success by Category
+
+Prompt: Use one or more of these measures to visually summarize which categories were most successful in attracting funding on kickstarter. Briefly summarize your findings.
+
+```{r}
+## Creating a new flag for whether the project was successful, and whether the project is over
+
+kickstarter$sucessflag <- ifelse(kickstarter$state=="successful", 1, 0)
+kickstarter$finishflag <- ifelse(kickstarter$state=="failed" | kickstarter$state=="successful", 1, 0)
+```
+
+I started my exploratory anaylsis by looking at the percentage of successful projects by category.
+
+```{r}
+## calculating average successrate and average number of backers
+
+best <- kickstarter %>%
+  filter(finishflag==1) %>%
+  group_by(top_category) %>%
+  mutate(total = sum(finishflag)) %>%
+  ungroup() %>%
+  group_by(top_category, state) %>%
+  mutate(totalstate = sum(finishflag)) %>%
+  mutate(percentcat = round((totalstate/total)*100, digits=1)) %>%
+  ungroup()
+
+## preparing data for ranked categories by percent successful
+
+sucessful <- best %>%
+  filter(state=="successful") %>%
+  group_by(top_category, percentcat) %>%
+  summarize()
+```
+
+```{r}
+bar_1 <- ggplot(sucessful, aes(y=percentcat, x=reorder(top_category, percentcat))) +
+  geom_bar(stat="identity") +
+  theme_tufte() +
+  coord_flip() +
+  labs(x="", y="", title = "Percentage of Successful Projects by Category") +
+  theme(legend.position = "above", 
+        axis.text.y = element_text(color="gray29", size=12), 
+        axis.text.x = element_text(color="gray29", size=12), 
+        plot.title = element_text(size=17, face="italic", hjust=.2, vjust = 1), 
+        panel.grid.major.x = element_line(color = "lightgrey"), 
+        axis.ticks = element_blank())
+
+bar_1
+```
+
+The bar chart shows that the "dance" category has the highest percentage of successfully funded projects.
+
+But maybe dance projects cheaper than other types of projects, so they are easier to sucessfully fund. Maybe a better measure of success would be the number of backers that category was able to attract.
+
+```{r}
+## looking at average number of backers per category
+
+backers <- kickstarter %>%
+  filter(finishflag==1) %>%
+  mutate(totalbackers_all = sum(backers_count)) %>%
+  group_by(top_category) %>%
+  mutate(totalbackers = sum(backers_count)) %>%
+  ungroup() %>%
+  mutate(percentbacker = round((totalbackers/totalbackers_all)*100, digits=1)) %>%
+  group_by(top_category, percentbacker, totalbackers) %>%
+  summarize() %>%
+  ungroup()
+```
+
+```{r}
+## plotting another bar chart
+
+bar_2 <- ggplot(backers, aes(y=percentbacker, x=reorder(top_category, percentbacker))) +
+  geom_bar(stat="identity") +
+  theme_tufte() +
+  coord_flip() +
+  labs(x="", y="", title = "Percentage of Backers by Category") +
+  theme(legend.position = "above", 
+        axis.text.y = element_text(color="gray29", size=12), 
+        axis.text.x = element_text(color="gray29", size=12), 
+        plot.title = element_text(size=17, face="italic", hjust=.2, vjust = 1), 
+        panel.grid.major.x = element_line(color = "lightgrey"), 
+        axis.ticks = element_blank())
+
+bar_2
+```
+
+
+
