@@ -1,0 +1,12 @@
+ sub <- d[, c("vote04", "age", "poleff3", "news")]
+> sub <- na.omit(sub)
+> table(sub$news)
+
+  1   2   3   4   5 
+243 181 122  93  81 
+> sub$readnews = 6 - sub$news
+> table(sub$readnews)
+
+  1   2   3   4   5 
+ 81  93 122 181 243 
+> 
